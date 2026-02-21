@@ -24,7 +24,7 @@ namespace RemotePTT.GUI
                 return;
 
             var message = formatter != null ? formatter(state, exception) : state?.ToString();
-            var text = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {_category}: {message}";
+            var text = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {message}";
             if (exception != null)
                 text += "\n" + exception;
 

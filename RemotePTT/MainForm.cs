@@ -60,5 +60,10 @@ namespace RemotePTT.GUI
         {
             _controller.Init();
         }
+
+        private void btnTestPTT_Click(object sender, EventArgs e)
+        {
+            _controller.PTT(3);
+        }
     }
 }

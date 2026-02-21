@@ -210,6 +210,7 @@
             btnTestPTT.TabIndex = 5;
             btnTestPTT.Text = "Test PTT";
             btnTestPTT.UseVisualStyleBackColor = true;
+            btnTestPTT.Click += btnTestPTT_Click;
             // 
             // rtbInfo
             // 

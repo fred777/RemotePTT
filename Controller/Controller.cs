@@ -7,8 +7,8 @@ namespace RemotePTT.Controller
     {
         public void Init()
         {
-            initTask= Task.Run(() =>
-               {                   
+            initTask = Task.Run(() =>
+               {
                    omniRigEngine = new OmniRig.OmniRigX();
                    logger.LogInformation($"Omnirig InterfaceVersion {omniRigEngine.InterfaceVersion}, SoftwareVersion {omniRigEngine.SoftwareVersion}");
                    SetRig(1);
@@ -53,18 +53,24 @@ namespace RemotePTT.Controller
                 return;
             }
 
+            if (TimerActive)
+            {
+                logger.LogWarning("Cannot change rig while PTT active.");
+                return;
+            }
+
             rig = rigNumber == 1 ? omniRigEngine.Rig1 : omniRigEngine.Rig2;
 
             LogRigInfo();
         }
 
         public void RigConfigure()
-        {            
+        {
             omniRigEngine?.DialogVisible = true;
         }
 
         public void LogRigInfo()
-        {            
+        {
             if (rig == null)
             {
                 logger.LogWarning("Rig is not initialized.");
@@ -74,10 +80,56 @@ namespace RemotePTT.Controller
             logger.LogInformation($"RigType={rig.RigType}, Status={rig.StatusStr}, Freq={rig.Freq}, Mode={rig.Mode}");
         }
 
+        public void PTT(int seconds)
+        {
+            if (rig == null)
+            {
+                logger.LogWarning("Rig is not initialized.");
+                return;
+            }
+
+            if (TimerActive)
+            {
+                logger.LogWarning("PTT is already active.");
+                return;
+            }
+
+            if (seconds < 1 || seconds > 60)
+            {
+                logger.LogError($"Invalid PTT duration: {seconds}");
+                return;
+            }
+
+            rig.Mode = OmniRig.RigParamX.PM_CW_L;
+            rig.Tx = OmniRig.RigParamX.PM_TX;
+           
+            if (rig.Status != OmniRig.RigStatusX.ST_ONLINE || rig.Tx==OmniRig.RigParamX.PM_UNKNOWN)
+            {
+                logger.LogError($"Failed to set PTT for {rig.RigType}, {rig.StatusStr}");
+                return;
+            }
+
+            logger.LogInformation($"Pressing PTT on {rig.RigType} for {seconds} seconds.");
+
+            pttTimer = new System.Timers.Timer(TimeSpan.FromSeconds(seconds));
+            pttTimer.AutoReset = false;            
+            pttTimer.Elapsed += (sender, e) =>
+            {
+                logger.LogInformation($"Releasing PTT for {rig.RigType}");
+                rig.Tx = OmniRig.RigParamX.PM_RX;
+                pttTimer?.Stop();
+                pttTimer?.Dispose();
+                pttTimer = null;
+            };
+            pttTimer.Start();
+        }
+
         private void ReleaseRessources()
         {
             mqttClient?.Dispose();
         }
+
+        private bool TimerActive => pttTimer != null && pttTimer.Enabled;
 
         //private IRigCore? rig = null;
         private IMqttClient? mqttClient = null;
@@ -89,6 +141,8 @@ namespace RemotePTT.Controller
         private readonly ILogger logger = logger;
 
         private Task? initTask = null;
+
+        private System.Timers.Timer? pttTimer = null;
 
         protected virtual void Dispose(bool disposing)
         {
@@ -118,7 +172,6 @@ namespace RemotePTT.Controller
             // Do not change this code. Put cleanup code in 'Dispose(bool disposing)' method
             Dispose(disposing: true);
             GC.SuppressFinalize(this);
-
         }
     }
 }
