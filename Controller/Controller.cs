@@ -4,7 +4,7 @@ using System.Text;
 namespace RemotePTT.Controller
 {
     public class Controller(ILogger logger) : IDisposable
-    {
+    {        
         public string Topic => "ham/remoteptt";
 
         public Task InitAsync()
@@ -13,7 +13,7 @@ namespace RemotePTT.Controller
                {
                    omniRigEngine = new OmniRig.OmniRigX();
                    logger.LogInformation($"Omnirig InterfaceVersion {omniRigEngine.InterfaceVersion}, SoftwareVersion {omniRigEngine.SoftwareVersion}");
-                   SetRig(1);
+                   SelectRig(1);
                });
         }
 
@@ -70,7 +70,7 @@ namespace RemotePTT.Controller
             return Task.CompletedTask;
         }
 
-        public void SetRig(int rigNumber)
+        public void SelectRig(int id)
         {
             if (omniRigEngine == null)
             {
@@ -78,17 +78,17 @@ namespace RemotePTT.Controller
                 return;
             }
 
-            if (rigNumber < 0 || rigNumber > 2)
+            if (id < 0 || id > 2)
             {
-                logger.LogWarning("Only rig numbers 1 and 2 are supported.");
+                logger.LogWarning("Only rig ids 1 and 2 are supported.");
             }
 
-            rig = rigNumber == 1 ? omniRigEngine.Rig1 : omniRigEngine.Rig2;
+            rig = id == 1 ? omniRigEngine.Rig1 : omniRigEngine.Rig2;
 
             LogRigInfo();
         }
 
-        public void RigConfigure()
+        public void ShowRigConfigurationDialog()
         {
             omniRigEngine?.DialogVisible = true;
         }
@@ -104,6 +104,10 @@ namespace RemotePTT.Controller
             logger.LogInformation($"RigType={rig.RigType}, Status={rig.StatusStr}, Freq={rig.Freq}, Mode={rig.Mode}");
         }
 
+        /// <summary>
+        /// Push PTT on selected rig for specified number of seconds. If seconds is 0, release PTT immediately. If seconds is negative or greater than 60, log an error and do nothing.
+        /// </summary>
+        /// <param name="seconds"></param>
         public void PTT(int seconds)
         {
             if (rig == null)
@@ -124,7 +128,7 @@ namespace RemotePTT.Controller
                 return;
             }
 
-            if (TimerActive)
+            if (pttTimer != null && pttTimer.Enabled)
             {
                 logger.LogWarning("PTT is already active.");
                 return;
@@ -139,7 +143,7 @@ namespace RemotePTT.Controller
                 return;
             }
 
-            logger.LogInformation($"Pressing PTT on {rig.RigType} for {seconds} seconds.");
+            logger.LogInformation($"Pressing PTT on {rig.RigType} for {seconds} seconds, mode {rig.Mode}, qrg {rig.GetTxFrequency()}");
 
             pttTimer = new System.Timers.Timer(TimeSpan.FromSeconds(seconds));
             pttTimer.AutoReset = false;
@@ -159,8 +163,6 @@ namespace RemotePTT.Controller
                 pttTimer = null;
             }
         }
-
-        private bool TimerActive => pttTimer != null && pttTimer.Enabled;
 
         private IMqttClient? mqttClient = null;
 

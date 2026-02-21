@@ -40,12 +40,12 @@ namespace RemotePTT.GUI
 
         private void btnOmnirigConfigure_Click(object sender, EventArgs e)
         {
-            controller.RigConfigure();
+            controller.ShowRigConfigurationDialog();
         }
 
         private void rbRig_CheckedChanged(object sender, EventArgs e)
         {
-            controller.SetRig(rbRig1.Checked ? 1 : 2);
+            controller.SelectRig(rbRig1.Checked ? 1 : 2);
         }
 
         private async void MainForm_Load(object sender, EventArgs e)
