@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Controller/RemotePTT.Controller.csproj" />
+  <Project Path="RemotePTT/RemotePTT.GUI.csproj" />
+</Solution>
