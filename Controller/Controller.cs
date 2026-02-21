@@ -50,13 +50,6 @@ namespace RemotePTT.Controller
             if (rigNumber < 0 || rigNumber > 2)
             {
                 logger.LogWarning("Only rig numbers 1 and 2 are supported.");
-                return;
-            }
-
-            if (TimerActive)
-            {
-                logger.LogWarning("Cannot change rig while PTT active.");
-                return;
             }
 
             rig = rigNumber == 1 ? omniRigEngine.Rig1 : omniRigEngine.Rig2;
@@ -81,7 +74,7 @@ namespace RemotePTT.Controller
         }
 
         public void PTT(int seconds)
-        {
+        {           
             if (rig == null)
             {
                 logger.LogWarning("Rig is not initialized.");
@@ -115,8 +108,9 @@ namespace RemotePTT.Controller
             pttTimer.AutoReset = false;            
             pttTimer.Elapsed += (sender, e) =>
             {
-                logger.LogInformation($"Releasing PTT for {rig.RigType}");
-                rig.Tx = OmniRig.RigParamX.PM_RX;
+                logger.LogInformation($"Releasing PTT for all rigs.");
+                omniRigEngine?.Rig1.Tx = OmniRig.RigParamX.PM_RX;
+                omniRigEngine?.Rig2.Tx = OmniRig.RigParamX.PM_RX;
                 pttTimer?.Stop();
                 pttTimer?.Dispose();
                 pttTimer = null;
@@ -124,14 +118,8 @@ namespace RemotePTT.Controller
             pttTimer.Start();
         }
 
-        private void ReleaseRessources()
-        {
-            mqttClient?.Dispose();
-        }
-
         private bool TimerActive => pttTimer != null && pttTimer.Enabled;
-
-        //private IRigCore? rig = null;
+        
         private IMqttClient? mqttClient = null;
 
         private bool disposedValue;
@@ -151,7 +139,8 @@ namespace RemotePTT.Controller
                 if (disposing)
                 {
                     // TODO: dispose managed state (managed objects)
-                    ReleaseRessources();
+                    mqttClient?.Dispose();
+                    pttTimer?.Dispose();
                 }
 
                 // TODO: free unmanaged resources (unmanaged objects) and override finalizer
