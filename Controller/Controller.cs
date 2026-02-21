@@ -1,13 +1,15 @@
 ﻿using Microsoft.Extensions.Logging;
 using MQTTnet;
-
+using System.Text;
 namespace RemotePTT.Controller
 {
     public class Controller(ILogger logger) : IDisposable
     {
-        public void Init()
+        public string Topic => "ham/remoteptt";
+
+        public Task InitAsync()
         {
-            initTask = Task.Run(() =>
+            return Task.Run(() =>
                {
                    omniRigEngine = new OmniRig.OmniRigX();
                    logger.LogInformation($"Omnirig InterfaceVersion {omniRigEngine.InterfaceVersion}, SoftwareVersion {omniRigEngine.SoftwareVersion}");
@@ -17,6 +19,12 @@ namespace RemotePTT.Controller
 
         public async Task StartMqttAsync(string mqttBrokerHostname)
         {
+            if (string.IsNullOrWhiteSpace(mqttBrokerHostname))
+            {
+                logger.LogError("MQTT broker hostname must not be empty.");
+                return;
+            }
+
             var mqttFactory = new MqttClientFactory();
 
             mqttClient?.Dispose();
@@ -32,11 +40,34 @@ namespace RemotePTT.Controller
                 var response = await mqttClient.ConnectAsync(mqttClientOptions, CancellationToken.None);
 
                 logger.LogInformation($"MQTT connected: {response.ResultCode}");
+
+                mqttClient.ApplicationMessageReceivedAsync += HandleMqttMessageAsync;
+
+                var mqttSubscribeOptions = mqttFactory.CreateSubscribeOptionsBuilder().WithTopicFilter(Topic).Build();
+
+                await mqttClient.SubscribeAsync(mqttSubscribeOptions, CancellationToken.None);
+
+                logger.LogInformation($"MQTT subscribed to {Topic}");
             }
             catch (Exception ex)
             {
                 logger.LogError($"MQTT error: {ex.Message}");
             }
+        }
+
+        private Task HandleMqttMessageAsync(MqttApplicationMessageReceivedEventArgs e)
+        {
+            try
+            {
+                var payload = Encoding.UTF8.GetString(e.ApplicationMessage.Payload);
+                logger.LogInformation($"Received MQTT message \"{payload}\"");
+                PTT(int.Parse(payload));
+            }
+            catch (Exception ex)
+            {
+                logger.LogError($"Error processing payload: {ex.Message}");
+            }
+            return Task.CompletedTask;
         }
 
         public void SetRig(int rigNumber)
@@ -74,10 +105,22 @@ namespace RemotePTT.Controller
         }
 
         public void PTT(int seconds)
-        {           
+        {
             if (rig == null)
             {
                 logger.LogWarning("Rig is not initialized.");
+                return;
+            }
+
+            if (seconds < 0 || seconds > 60)
+            {
+                logger.LogError($"Invalid PTT duration: {seconds}");
+                return;
+            }
+
+            if (seconds == 0)
+            {
+                HandlePttTimerElapsed();
                 return;
             }
 
@@ -87,16 +130,10 @@ namespace RemotePTT.Controller
                 return;
             }
 
-            if (seconds < 1 || seconds > 60)
-            {
-                logger.LogError($"Invalid PTT duration: {seconds}");
-                return;
-            }
-
             rig.Mode = OmniRig.RigParamX.PM_CW_L;
             rig.Tx = OmniRig.RigParamX.PM_TX;
-           
-            if (rig.Status != OmniRig.RigStatusX.ST_ONLINE || rig.Tx==OmniRig.RigParamX.PM_UNKNOWN)
+
+            if (rig.Status != OmniRig.RigStatusX.ST_ONLINE || rig.Tx == OmniRig.RigParamX.PM_UNKNOWN)
             {
                 logger.LogError($"Failed to set PTT for {rig.RigType}, {rig.StatusStr}");
                 return;
@@ -105,8 +142,14 @@ namespace RemotePTT.Controller
             logger.LogInformation($"Pressing PTT on {rig.RigType} for {seconds} seconds.");
 
             pttTimer = new System.Timers.Timer(TimeSpan.FromSeconds(seconds));
-            pttTimer.AutoReset = false;            
-            pttTimer.Elapsed += (sender, e) =>
+            pttTimer.AutoReset = false;
+            pttTimer.Elapsed += (_, _) => HandlePttTimerElapsed();
+            pttTimer.Start();
+        }
+
+        private void HandlePttTimerElapsed()
+        {
+            lock (this)
             {
                 logger.LogInformation($"Releasing PTT for all rigs.");
                 omniRigEngine?.Rig1.Tx = OmniRig.RigParamX.PM_RX;
@@ -114,12 +157,11 @@ namespace RemotePTT.Controller
                 pttTimer?.Stop();
                 pttTimer?.Dispose();
                 pttTimer = null;
-            };
-            pttTimer.Start();
+            }
         }
 
         private bool TimerActive => pttTimer != null && pttTimer.Enabled;
-        
+
         private IMqttClient? mqttClient = null;
 
         private bool disposedValue;
@@ -141,6 +183,8 @@ namespace RemotePTT.Controller
                     // TODO: dispose managed state (managed objects)
                     mqttClient?.Dispose();
                     pttTimer?.Dispose();
+                    omniRigEngine?.Rig1.Tx = OmniRig.RigParamX.PM_RX;
+                    omniRigEngine?.Rig2.Tx = OmniRig.RigParamX.PM_RX;
                 }
 
                 // TODO: free unmanaged resources (unmanaged objects) and override finalizer
