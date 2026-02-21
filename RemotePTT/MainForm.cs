@@ -6,6 +6,7 @@ namespace RemotePTT.GUI
     {
         private readonly Controller.Controller _controller;
 
+
         public MainForm()
         {
             InitializeComponent();
@@ -32,12 +33,32 @@ namespace RemotePTT.GUI
                 MessageBox.Show("Please enter a valid MQTT broker hostname.", "Input Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
-            await _controller.StartAsync(host);
+            await _controller.StartMqttAsync(host);
         }
 
         private void MainForm_FormClosed(object sender, FormClosedEventArgs e)
         {
             _controller?.Dispose();
+        }
+
+        private void btnRiginfo_Click(object sender, EventArgs e)
+        {
+            _controller.LogRigInfo();
+        }
+
+        private void btnOmnirigConfigure_Click(object sender, EventArgs e)
+        {
+            _controller.RigConfigure();
+        }
+
+        private void rbRig_CheckedChanged(object sender, EventArgs e)
+        {
+            _controller.SetRig(rbRig1.Checked ? 1 : 2);
+        }
+
+        private void MainForm_Load(object sender, EventArgs e)
+        {
+            _controller.Init();
         }
     }
 }

@@ -5,7 +5,17 @@ namespace RemotePTT.Controller
 {
     public class Controller(ILogger logger) : IDisposable
     {
-        public async Task StartAsync(string mqttBrokerHostname)
+        public void Init()
+        {
+            initTask= Task.Run(() =>
+               {                   
+                   omniRigEngine = new OmniRig.OmniRigX();
+                   logger.LogInformation($"Omnirig InterfaceVersion {omniRigEngine.InterfaceVersion}, SoftwareVersion {omniRigEngine.SoftwareVersion}");
+                   SetRig(1);
+               });
+        }
+
+        public async Task StartMqttAsync(string mqttBrokerHostname)
         {
             var mqttFactory = new MqttClientFactory();
 
@@ -29,10 +39,56 @@ namespace RemotePTT.Controller
             }
         }
 
+        public void SetRig(int rigNumber)
+        {
+            if (omniRigEngine == null)
+            {
+                logger.LogWarning("OmniRig engine is not initialized.");
+                return;
+            }
+
+            if (rigNumber < 0 || rigNumber > 2)
+            {
+                logger.LogWarning("Only rig numbers 1 and 2 are supported.");
+                return;
+            }
+
+            rig = rigNumber == 1 ? omniRigEngine.Rig1 : omniRigEngine.Rig2;
+
+            LogRigInfo();
+        }
+
+        public void RigConfigure()
+        {            
+            omniRigEngine?.DialogVisible = true;
+        }
+
+        public void LogRigInfo()
+        {            
+            if (rig == null)
+            {
+                logger.LogWarning("Rig is not initialized.");
+                return;
+            }
+
+            logger.LogInformation($"RigType={rig.RigType}, Status={rig.StatusStr}, Freq={rig.Freq}, Mode={rig.Mode}");
+        }
+
+        private void ReleaseRessources()
+        {
+            mqttClient?.Dispose();
+        }
+
         //private IRigCore? rig = null;
-        private IMqttClient? mqttClient=null;
+        private IMqttClient? mqttClient = null;
 
         private bool disposedValue;
+
+        private OmniRig.OmniRigX? omniRigEngine;
+        private OmniRig.RigX? rig;
+        private readonly ILogger logger = logger;
+
+        private Task? initTask = null;
 
         protected virtual void Dispose(bool disposing)
         {
@@ -41,7 +97,7 @@ namespace RemotePTT.Controller
                 if (disposing)
                 {
                     // TODO: dispose managed state (managed objects)
-                    mqttClient?.Dispose();                    
+                    ReleaseRessources();
                 }
 
                 // TODO: free unmanaged resources (unmanaged objects) and override finalizer
@@ -62,6 +118,7 @@ namespace RemotePTT.Controller
             // Do not change this code. Put cleanup code in 'Dispose(bool disposing)' method
             Dispose(disposing: true);
             GC.SuppressFinalize(this);
+
         }
     }
 }
