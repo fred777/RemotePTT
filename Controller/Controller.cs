@@ -4,8 +4,14 @@ using System.Text;
 namespace RemotePTT.Controller
 {
     public class Controller(ILogger logger) : IDisposable
-    {        
-        public string Topic => "ham/remoteptt";
+    {
+        private static class Topics
+        {
+            public const string Ptt = "ham/remoteptt/ptt";
+            public const string qrg = "ham/remoteptt/qrg";
+            public const string trx = "ham/remoteptt/trx";
+            public const string rig = "ham/remoteptt/rig";
+        }
 
         public Task InitAsync()
         {
@@ -43,16 +49,60 @@ namespace RemotePTT.Controller
 
                 mqttClient.ApplicationMessageReceivedAsync += HandleMqttMessageAsync;
 
-                var mqttSubscribeOptions = mqttFactory.CreateSubscribeOptionsBuilder().WithTopicFilter(Topic).Build();
+                var mqttSubscribeOptions = mqttFactory.CreateSubscribeOptionsBuilder().WithTopicFilter(Topics.Ptt).Build();
 
                 await mqttClient.SubscribeAsync(mqttSubscribeOptions, CancellationToken.None);
 
-                logger.LogInformation($"MQTT subscribed to {Topic}");
+                logger.LogInformation($"MQTT subscribed to {Topics.Ptt}");
+
+                DisposeTimer(ref infoTimer);
+
+                infoTimer = new System.Timers.Timer(1000)
+                {
+                    AutoReset = true
+                };
+
+                infoTimer.Elapsed += async (_, _) =>
+                {
+                    if (rig == null || mqttClient == null)
+                    {
+                        DisposeTimer(ref infoTimer);
+                        return;
+                    }
+
+                    try
+                    {
+                        PublishStatus();
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning($"Failed to publish MQTT message: {ex.Message}");
+                        DisposeTimer(ref infoTimer);
+                    }
+                };
+
+                infoTimer.Start();
             }
             catch (Exception ex)
             {
                 logger.LogError($"MQTT error: {ex.Message}");
             }
+        }
+
+        private async void PublishStatus()
+        {
+            if (mqttClient == null) return;
+
+            const string NA = "N/A";
+            var isOnline = rig != null && rig.Status == OmniRig.RigStatusX.ST_ONLINE;
+
+            var qrg = isOnline ? $"{rig.GetTxFrequency() / 1e6:F4} MHz" : NA;
+            var trx = isOnline ? (rig.Tx == OmniRig.RigParamX.PM_TX ? "TX" : "RX") : NA;
+            var rigName = rig != null ? rig.RigType : NA;
+
+            await mqttClient.PublishAsync(new MqttApplicationMessageBuilder().WithTopic(Topics.qrg).WithPayload(qrg).Build());
+            await mqttClient.PublishAsync(new MqttApplicationMessageBuilder().WithTopic(Topics.rig).WithPayload(rigName).Build());
+            await mqttClient.PublishAsync(new MqttApplicationMessageBuilder().WithTopic(Topics.trx).WithPayload(trx).Build());
         }
 
         private Task HandleMqttMessageAsync(MqttApplicationMessageReceivedEventArgs e)
@@ -145,8 +195,10 @@ namespace RemotePTT.Controller
 
             logger.LogInformation($"Pressing PTT on {rig.RigType} for {seconds} seconds, mode {rig.Mode}, qrg {rig.GetTxFrequency()}");
 
-            pttTimer = new System.Timers.Timer(TimeSpan.FromSeconds(seconds));
-            pttTimer.AutoReset = false;
+            pttTimer = new System.Timers.Timer(TimeSpan.FromSeconds(seconds))
+            {
+                AutoReset = false
+            };
             pttTimer.Elapsed += (_, _) => HandlePttTimerElapsed();
             pttTimer.Start();
         }
@@ -158,15 +210,20 @@ namespace RemotePTT.Controller
                 logger.LogInformation($"Releasing PTT for all rigs.");
                 omniRigEngine?.Rig1.Tx = OmniRig.RigParamX.PM_RX;
                 omniRigEngine?.Rig2.Tx = OmniRig.RigParamX.PM_RX;
-                pttTimer?.Stop();
-                pttTimer?.Dispose();
-                pttTimer = null;
+                DisposeTimer(ref pttTimer);
             }
+        }
+
+        private void DisposeTimer(ref System.Timers.Timer? timer)
+        {
+            timer?.Stop();
+            timer?.Dispose();
+            timer = null;
         }
 
         private IMqttClient? mqttClient = null;
 
-        private bool disposedValue;
+        private bool isDisposed;
 
         private OmniRig.OmniRigX? omniRigEngine;
         private OmniRig.RigX? rig;
@@ -175,23 +232,27 @@ namespace RemotePTT.Controller
         private Task? initTask = null;
 
         private System.Timers.Timer? pttTimer = null;
+        private System.Timers.Timer? infoTimer = null;
 
         protected virtual void Dispose(bool disposing)
         {
-            if (!disposedValue)
+            if (!isDisposed)
             {
                 if (disposing)
                 {
                     // TODO: dispose managed state (managed objects)
-                    mqttClient?.Dispose();
-                    pttTimer?.Dispose();
+                    DisposeTimer(ref pttTimer);
+                    DisposeTimer(ref infoTimer);
                     omniRigEngine?.Rig1.Tx = OmniRig.RigParamX.PM_RX;
                     omniRigEngine?.Rig2.Tx = OmniRig.RigParamX.PM_RX;
+                    rig = null;
+                    PublishStatus();
+                    mqttClient?.Dispose();
                 }
 
                 // TODO: free unmanaged resources (unmanaged objects) and override finalizer
                 // TODO: set large fields to null
-                disposedValue = true;
+                isDisposed = true;
             }
         }
 
