@@ -7,10 +7,12 @@ namespace RemotePTT.Controller
     {
         private static class Topics
         {
-            public const string Ptt = "ham/remoteptt/ptt";
+            public const string ptt = "ham/remoteptt/ptt";
             public const string qrg = "ham/remoteptt/qrg";
             public const string trx = "ham/remoteptt/trx";
             public const string rig = "ham/remoteptt/rig";
+            public const string power = "ham/remoteptt/power";
+            public const string mode = "ham/remoteptt/mode";
         }
 
         public Task InitAsync()
@@ -19,8 +21,27 @@ namespace RemotePTT.Controller
                {
                    omniRigEngine = new OmniRig.OmniRigX();
                    logger.LogInformation($"Omnirig InterfaceVersion {omniRigEngine.InterfaceVersion}, SoftwareVersion {omniRigEngine.SoftwareVersion}");
+
+                   omniRigEngine.CustomReply += HandleOmnirigCustomReply;
+
                    SelectRig(1);
                });
+        }
+
+        private void HandleOmnirigCustomReply(int rigNumber, object command, object reply)
+        {
+            try {
+                var cmdString = Encoding.UTF8.GetString((byte[])command);
+                var replyString = Encoding.UTF8.GetString((byte[])reply);
+                //logger.LogInformation($"Received custom reply from rig #{rigNumber}: Command=\"{cmdString}\", Reply=\"{replyString}\"");
+                if(replyString.Length==6 && replyString.Substring(0,2)=="PC")
+                {
+                    rigPower = int.Parse(replyString.Substring(2,3));
+                }
+            }
+            catch (Exception ex){
+                logger.LogWarning($"Error parsing custom reply from rig #{rigNumber}: {ex.Message}");
+            }
         }
 
         public async Task StartMqttAsync(string mqttBrokerHostname)
@@ -49,11 +70,11 @@ namespace RemotePTT.Controller
 
                 mqttClient.ApplicationMessageReceivedAsync += HandleMqttMessageAsync;
 
-                var mqttSubscribeOptions = mqttFactory.CreateSubscribeOptionsBuilder().WithTopicFilter(Topics.Ptt).Build();
+                var mqttSubscribeOptions = mqttFactory.CreateSubscribeOptionsBuilder().WithTopicFilter(Topics.ptt).Build();
 
                 await mqttClient.SubscribeAsync(mqttSubscribeOptions, CancellationToken.None);
 
-                logger.LogInformation($"MQTT subscribed to {Topics.Ptt}");
+                logger.LogInformation($"MQTT subscribed to {Topics.ptt}");
 
                 DisposeTimer(ref infoTimer);
 
@@ -72,6 +93,7 @@ namespace RemotePTT.Controller
 
                     try
                     {
+                        rig.SendCustomCommand("PC;", 6, ";"); // Query power level from rig, response will be handled in HandleOmnirigCustomReply
                         PublishStatus();
                     }
                     catch (Exception ex)
@@ -96,13 +118,17 @@ namespace RemotePTT.Controller
             const string NA = "N/A";
             var isOnline = rig != null && rig.Status == OmniRig.RigStatusX.ST_ONLINE;
 
-            var qrg = isOnline ? $"{rig.GetTxFrequency() / 1e6:F4} MHz" : NA;
-            var trx = isOnline ? (rig.Tx == OmniRig.RigParamX.PM_TX ? "TX" : "RX") : NA;
+            var qrg = isOnline ? $"{rig?.GetTxFrequency() / 1e6:F4} MHz" : NA;
+            var trx = isOnline ? (rig?.Tx == OmniRig.RigParamX.PM_TX ? "TX" : "RX") : NA;
             var rigName = rig != null ? rig.RigType : NA;
+            var power = isOnline && rigPower > 0 ? $"{rigPower} W" : NA;
+            var mode = isOnline ? rig?.Mode.ToString().Substring(3) : NA;
 
             await mqttClient.PublishAsync(new MqttApplicationMessageBuilder().WithTopic(Topics.qrg).WithPayload(qrg).Build());
             await mqttClient.PublishAsync(new MqttApplicationMessageBuilder().WithTopic(Topics.rig).WithPayload(rigName).Build());
             await mqttClient.PublishAsync(new MqttApplicationMessageBuilder().WithTopic(Topics.trx).WithPayload(trx).Build());
+            await mqttClient.PublishAsync(new MqttApplicationMessageBuilder().WithTopic(Topics.power).WithPayload(power).Build());
+            await mqttClient.PublishAsync(new MqttApplicationMessageBuilder().WithTopic(Topics.mode).WithPayload(mode).Build());
         }
 
         private Task HandleMqttMessageAsync(MqttApplicationMessageReceivedEventArgs e)
@@ -134,6 +160,7 @@ namespace RemotePTT.Controller
             }
 
             rig = id == 1 ? omniRigEngine.Rig1 : omniRigEngine.Rig2;
+            rigPower = 0;
 
             LogRigInfo();
         }
@@ -233,6 +260,8 @@ namespace RemotePTT.Controller
 
         private System.Timers.Timer? pttTimer = null;
         private System.Timers.Timer? infoTimer = null;
+
+        private int rigPower=-1;
 
         protected virtual void Dispose(bool disposing)
         {
