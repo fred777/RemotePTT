@@ -121,7 +121,7 @@ namespace RemotePTT.Controller
             var isOnline = rig != null && rig.Status == OmniRig.RigStatusX.ST_ONLINE;
 
             var qrg = isOnline ? $"{rig?.GetTxFrequency() / 1e6:F4} MHz" : NA;
-            var trx = isOnline ? (rig?.Tx == OmniRig.RigParamX.PM_TX ? "TX" : "RX") : NA;
+            var trx = isOnline ? (rig?.Tx == OmniRig.RigParamX.PM_TX || pttTimer != null ? "TX" : "RX") : NA;
             var rigName = rig != null ? rig.RigType : NA;
             var power = isOnline && rigPower > 0 ? $"{rigPower} W" : NA;
             var mode = isOnline ? rig?.Mode.ToString().Substring(3) : NA;
@@ -222,7 +222,7 @@ namespace RemotePTT.Controller
                 return;
             }
 
-            logger.LogInformation($"Pressing PTT on {rig.RigType} for {seconds} seconds, mode {rig.Mode}, qrg {rig.GetTxFrequency()}");
+            logger.LogInformation($"Pressing PTT on {rig.RigType} for {seconds} seconds, mode {rig.Mode}, qrg {rig.GetTxFrequency()}, {rig.Tx}");
 
             pttTimer = new System.Timers.Timer(TimeSpan.FromSeconds(seconds))
             {
