@@ -113,6 +113,10 @@ namespace RemotePTT.Controller
             }
         }
 
+        enum ConnectionStatus { unknown, disconnected, connected };
+
+        private ConnectionStatus lastConnectionStatus = ConnectionStatus.unknown;
+
         private async void PublishStatus()
         {
             if (mqttClient == null) return;
@@ -125,6 +129,14 @@ namespace RemotePTT.Controller
             var rigName = rig != null ? rig.RigType : NA;
             var power = isOnline && rigPower > 0 ? $"{rigPower} W" : NA;
             var mode = isOnline ? rig?.Mode.ToString().Substring(3) : NA;
+
+            var connectionStatus = isOnline ? ConnectionStatus.connected : ConnectionStatus.disconnected;
+
+            if (lastConnectionStatus != connectionStatus)
+            {
+                logger.LogInformation($"Rig {rigName} {connectionStatus}");
+                lastConnectionStatus = connectionStatus;
+            }
 
             await mqttClient.PublishAsync(new MqttApplicationMessageBuilder().WithTopic(Topics.qrg).WithPayload(qrg).Build());
             await mqttClient.PublishAsync(new MqttApplicationMessageBuilder().WithTopic(Topics.rig).WithPayload(rigName).Build());
@@ -163,6 +175,7 @@ namespace RemotePTT.Controller
 
             rig = id == 1 ? omniRigEngine.Rig1 : omniRigEngine.Rig2;
             rigPower = 0;
+            lastConnectionStatus = ConnectionStatus.unknown;
 
             LogRigInfo();
         }
