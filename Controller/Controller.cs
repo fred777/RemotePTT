@@ -30,16 +30,18 @@ namespace RemotePTT.Controller
 
         private void HandleOmnirigCustomReply(int rigNumber, object command, object reply)
         {
-            try {
-                var cmdString = Encoding.UTF8.GetString((byte[])command);
-                var replyString = Encoding.UTF8.GetString((byte[])reply);
+            try
+            {
+                var cmdString = Encoding.ASCII.GetString((byte[])command);
+                var replyString = Encoding.ASCII.GetString((byte[])reply);
                 //logger.LogInformation($"Received custom reply from rig #{rigNumber}: Command=\"{cmdString}\", Reply=\"{replyString}\"");
-                if(replyString.Length==6 && replyString.Substring(0,2)=="PC")
+                if (replyString.Length == 6 && replyString.Substring(0, 2) == "PC")
                 {
-                    rigPower = int.Parse(replyString.Substring(2,3));
+                    rigPower = int.Parse(replyString.Substring(2, 3));
                 }
             }
-            catch (Exception ex){
+            catch (Exception ex)
+            {
                 logger.LogWarning($"Error parsing custom reply from rig #{rigNumber}: {ex.Message}");
             }
         }
@@ -261,7 +263,7 @@ namespace RemotePTT.Controller
         private System.Timers.Timer? pttTimer = null;
         private System.Timers.Timer? infoTimer = null;
 
-        private int rigPower=-1;
+        private int rigPower = -1;
 
         protected virtual void Dispose(bool disposing)
         {
